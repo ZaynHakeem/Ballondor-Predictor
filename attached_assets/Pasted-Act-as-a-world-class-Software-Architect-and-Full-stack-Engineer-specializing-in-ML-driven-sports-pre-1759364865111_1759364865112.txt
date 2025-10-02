@@ -1,0 +1,173 @@
+Act as a world-class Software Architect and Full-stack Engineer specializing in ML-driven sports prediction web applications. Given the following context, criteria, and instructions, produce a complete, actionable implementation plan, technical specification, and starter-code-ready deliverables for a web app titled "Ballon d’Or Predictor" that predicts Ballon d’Or winners using historical player stats, provides interactive visualizations and explanations, and is deployable as a production-ready portfolio project.
+
+## Context
+- Project title: Ballon d’Or Predictor
+- Elevator pitch: A web app that predicts the next Ballon d’Or winner using historical player stats, performance metrics, and machine learning models, providing fans with interactive predictions and insights.
+- Key features / user stories:
+  - Users select a season or input player stats to see predicted likelihood of winning.
+  - ML model predicts winners based on historical performance (goals, assists, trophies, minutes played, etc.).
+  - Interactive leaderboard showing top predicted candidates.
+  - Visualization of feature importance to explain predictions (e.g., goals vs assists weight).
+  - Mobile-friendly React UI with charts and tooltips.
+- Tech stack preferences:
+  - Frontend: React + Chart.js or Recharts for visualizations
+  - Backend: Express (Node.js) or Spring Boot (Java) — prefer Express for rapid iteration and simpler deployment
+  - ML: Python (Pandas, Scikit-learn) for preprocessing and models (Logistic Regression, Random Forest)
+  - Database: MongoDB Atlas (store historical stats & user queries)
+  - Hosting: Render / Heroku (alternatively Docker + cloud provider)
+  - Optional: Lightweight Hugging Face API integration for news sentiment analysis
+- Complexity & time estimate: Medium (~80–100 hrs, 8–10 weeks)
+- Implementation roadmap (baseline to follow):
+  - Week 1–2: Gather historical Ballon d’Or data (FIFA stats, Transfermarkt, or Kaggle datasets) and clean/structure it in MongoDB.
+  - Week 3: Train baseline ML model (Logistic Regression / Random Forest) and save model for inference.
+  - Week 4: Set up Express backend API to serve predictions and integrate with Python ML service.
+  - Week 5: Build React frontend with input forms, prediction results, and leaderboard.
+  - Week 6: Add feature importance visualization (bar chart showing what metrics mattered most).
+  - Week 7: Optimize UI, mobile responsiveness, and test prediction accuracy.
+  - Week 8: Deploy backend + frontend, finalize live demo for portfolio.
+- Stretch goals:
+  - Add real-time sentiment analysis from football news for each player to adjust predictions.
+  - Compare predicted winner vs actual historical winner for multiple seasons.
+  - Add user accounts to save prediction history.
+
+## Approach
+- Architecture overview:
+  - Three-tier architecture:
+    - Frontend: React app (CRA or Vite) using Recharts or Chart.js for visualization; responsive layout with Material-UI or Tailwind CSS for quick styling.
+    - Backend API: Express.js service responsible for user requests, authentication (optional), caching, and proxying to ML service. Provide REST endpoints: /predict, /leaderboard, /players, /seasons, /feature-importance, /retrain (admin).
+    - ML Service: Python FastAPI (preferred for easy async REST) that loads trained Scikit-learn models (joblib) and exposes /infer and /retrain endpoints. Responsible for preprocessing, feature engineering, and returning prediction probabilities and feature importance explanations (SHAP or permutation importance).
+    - Database: MongoDB Atlas with collections: players, seasons, stats, model_versions, user_queries, predictions, news_sentiment (optional).
+  - Data flow:
+    - ETL scripts gather raw data from sources -> preprocessing pipeline -> write cleaned season/player feature records into MongoDB.
+    - Model training job reads from MongoDB, executes feature engineering, trains models, stores model artifact and metadata in model_versions collection and file storage (S3 or repo).
+    - Express API queries ML service for predictions or serves cached results stored in MongoDB.
+    - React UI calls Express endpoints to display predictions, leaderboards, and visual explanations.
+- Data modeling & schema:
+  - players collection:
+    - _id, name, birth_date, position, nationality, current_club, player_id_source
+  - seasons collection:
+    - season_id, start_year, end_year, competition_list
+  - stats collection (one document per player-season):
+    - player_id, season_id, club, appearances, minutes_played, goals, assists, xG, xA, shots, shots_on_target, key_passes, dribbles, pass_accuracy, tackles, interceptions, clean_sheets (for GK/DF), trophies_won_season, team_UEFA_performance, avg_match_rating, age_at_season_end, position_group, is_ballondor_nominee (bool), ballondor_position (actual result)
+  - model_versions:
+    - version_id, model_type, features_list, train_date, metrics, artifact_path, notes
+  - predictions:
+    - request_id, season_id, input_type (season_selection | manual_input), input_payload, model_version, created_at, results (array of {player_id, probability, rank}), feature_importance_by_player (optional)
+  - user_queries (optional): user_id, anonymous_token, request_id, saved_flag
+- Feature engineering:
+  - Normalize per-90 stats: goals_per90 = goals / (minutes_played/90)
+  - Season weight: more recent performance weighted higher for current-year predictions
+  - Aggregations: club success score, international tournaments weight, trophies_count * trophy_weight
+  - Derived metrics: goal_contribution = (goals + assists) / appearances; clutch_goals = goals_in_big_matches
+  - Encode categorical: position_group one-hot or ordinal (Forward/Midfielder/Defender/Goalkeeper)
+  - Handle missing values: impute with median per position or season-level averages
+  - Balance classes: class_weight in LogisticRegression/RandomForest or resampling (SMOTE) for nominee vs winner classes
+- Modeling & evaluation:
+  - Baseline models: Logistic Regression (with L2 regularization), Random Forest (n_estimators=500, max_depth tune)
+  - Pipeline: sklearn Pipeline including imputer, scaler (StandardScaler), feature selector (optional), estimator
+  - Cross-validation strategy: season-based CV (leave-one-season-out) to avoid leakage
+  - Metrics: top-1 accuracy (did true winner rank #1), Top-K accuracy (Top3/Top5), ROC-AUC for binary winner vs not, precision@k, calibration (reliability)
+  - Explainability: SHAP values for Random Forest or feature coefficients for Logistic Regression. Provide global feature importance and per-player local explanations.
+  - Hyperparameter tuning: RandomizedSearchCV or GridSearchCV across reasonable ranges; log best hyperparameters and metrics.
+  - Model persistence: joblib.dump with semantic versioning (e.g., model_v1_2025-10-01.joblib) and record in model_versions collection.
+- ML service behavior:
+  - /infer (POST): accept season_id or manual player stats array -> run preprocessing -> return array of {player_id (or provided name), probability, rank, top_features: [{feature, contribution}], SHAP_summary (optional)}.
+  - /feature-importance (GET): return global feature importance for selected model_version.
+  - /retrain (POST, protected): trigger retrain from DB and store new model artifact.
+- Backend API design (Express):
+  - Endpoints:
+    - GET /api/seasons -> list seasons
+    - GET /api/players?season=YYYY -> players and quick stats
+    - POST /api/predict -> body {season_id | manual_inputs: [{name, stats...}], top_k} -> returns prediction results (calls ML service)
+    - GET /api/leaderboard?season_id=YYYY&top_k=10 -> cached top predictions for season
+    - GET /api/feature-importance?model_version= -> returns global importance
+    - POST /api/news-sentiment?player_id= -> optional: fetch sentiment adjustment (calls Hugging Face or stored sentiment scores)
+    - POST /api/auth/signin -> optional for user accounts
+  - Error handling: consistent error codes and messages, validation with Joi or express-validator
+  - Caching: Redis or in-memory LRU for frequently requested season leaderboards
+  - Security: rate limiting, input validation, CORS policies, store tokens/secrets in env vars
+- Frontend UX & components:
+  - Pages:
+    - Home: project description, season selector, quick top-10 leaderboard preview
+    - Season view: season selector, full leaderboard, filters (position, club), export CSV
+    - Player input: manual input form for a single player or bulk upload CSV
+    - Prediction detail: per-player probability, SHAP/feature bar, timeline charts (season-over-season)
+    - Admin: retrain button, model version view (protected)
+  - Components:
+    - SeasonSelector (dropdown/autocomplete)
+    - Leaderboard (sortable table + small bar chart for probability)
+    - PlayerCard (includes mini radar chart for stats)
+    - FeatureImportanceChart (horizontal bar, shows global weights)
+    - SHAPLocalChart (waterfall chart or simplified bar of top contributors)
+    - Mobile layout: stacked cards with collapsible feature detail
+  - Visualizations:
+    - Recharts: BarChart for feature importance, LineChart for player trends, RadarChart for stat profile
+    - Tooltips: custom tooltips showing exact stats and contribution explanation
+    - Accessibility: color contrast, ARIA labels for charts
+- Optional sentiment integration:
+  - Use Hugging Face sentiment-analysis pipeline via their hosted inference API or local small model
+  - Workflow: fetch recent news snippets for player (news API), run sentiment analysis, compute sentiment_score in [-1..1], apply configurable weight to final probability (e.g., final_prob = base_prob * (1 + alpha * sentiment_score))
+  - Store sentiment history in news_sentiment collection for trend visualization
+- Dev & deployment:
+  - Local dev: Dockerfiles for ML service, Express backend, and React frontend; use docker-compose for development with MongoDB local option (Atlas recommended for production)
+  - CI/CD: GitHub Actions to run linting, unit tests, build and push Docker images, deploy to Render/Heroku. Use Render web services for frontend and backend, and Render private service for ML if required.
+  - Environment variables (examples):
+    - MONGO_URI, MONGO_DB_NAME, ML_SERVICE_URL, HUGGINGFACE_API_KEY, JWT_SECRET, NODE_ENV, PORT
+  - Logging & monitoring: structured logs (winston for Node, loguru for Python), Sentry for error reporting, simple Prometheus metrics if deployed on container infra
+- Testing:
+  - ML: unit tests for preprocessing functions, integration tests for training flow, model performance regression tests
+  - Backend: unit tests with Jest + Supertest, validation tests for endpoints
+  - Frontend: component tests with React Testing Library, e2e tests with Cypress covering prediction flow and UI responsiveness
+- Non-functional requirements:
+  - Mobile-first responsive UI, latency target: <500ms for cached leaderboard, <1.5s for single-player inference (depends on ML service)
+  - Secure storage of API keys, no secrets in repo
+  - Reproducibility: data snapshot and training scripts with deterministic seeds
+- Scalability considerations:
+  - For large datasets or many concurrent queries, scale ML service horizontally and introduce Redis-based caching for predictions
+  - Consider converting heavy feature computations to precomputed features in DB rather than compute on-the-fly
+
+## Response Format
+Provide the following deliverables in a single aggregated response:
+1. High-level architecture summary (text + ASCII diagram) showing components and data flow.
+2. Project file tree scaffold showing directories and key files for frontend, backend, ml_service, infra, and scripts.
+3. Detailed MongoDB schema examples and 5 example documents (players, seasons, sample stats, model_versions, predictions).
+4. API specification (OpenAPI-style short spec) for Express endpoints and ML service endpoints including request/response JSON schemas and example payloads.
+5. ML training script pseudocode and a runnable Python script template using Pandas and Scikit-learn that:
+   - Pulls data from MongoDB
+   - Performs feature engineering and preprocessing
+   - Trains Logistic Regression and Random Forest baseline models
+   - Evaluates using season-based CV and logs metrics
+   - Saves best model with joblib
+6. ML service (FastAPI) starter code template that loads model artifact, implements /infer and /feature-importance endpoints, and returns SHAP-based explanations (include example of computing SHAP for tree models).
+7. Express backend starter code template that:
+   - Routes requests to ML service
+   - Implements input validation
+   - Stores prediction requests/results in MongoDB
+   - Example of caching leaderboard
+8. React frontend component map and sample code snippets for:
+   - Season selector
+   - Leaderboard page
+   - Prediction input form (manual)
+   - Feature importance chart using Recharts (or Chart.js)
+   - Mobile responsive layout sample CSS (or Tailwind classes)
+9. Dockerfile examples for each service and a docker-compose.dev.yml for local development.
+10. Deployment guide with Render and Heroku steps, GitHub Actions CI example, environment variables checklist, and recommendations for production secrets management.
+11. Test plan with example unit test cases for ML preprocessing, backend endpoints, and frontend components plus one Cypress e2e test case description.
+12. Security and privacy checklist (input validation, rate limiting, CORS, secrets, user data handling).
+13. Detailed week-by-week implementation timeline with task breakdown and estimated hours per task aligned to the 8-week roadmap; include contingency buffer and acceptance criteria per week.
+14. Stretch-goals appendix describing how to integrate Hugging Face sentiment analysis, add user accounts, and implement historical comparison view with example UI wireframe descriptions.
+15. Minimal runnable PoC instructions (commands) to start a local demo with sample data: seed script to insert a small dataset into MongoDB, how to run ML training, start ML service, start Express backend, and start React frontend.
+
+Format deliverables as clearly separated sections labeled by the numbers above. For code snippets, include language tags or file path headers for clarity and ensure code is copy-paste runnable after filling in environment variables. Keep all instructions imperative and prescriptive; ensure reproducibility and prioritize clarity for a developer to implement the project end-to-end.
+
+## Instructions
+- Prefer Express.js for the main backend and FastAPI for the Python ML microservice for simplicity and performance, but note where Spring Boot would differ if chosen.
+- Provide concrete feature lists used for modeling (exact column names and transformations).
+- Use season-based CV strategies and explicitly call out leakage risks and how to avoid them.
+- Include SHAP-based example for feature importance and provide fallback simple permutation importance snippet for smaller setups.
+- Ensure all endpoints include example request bodies and example responses with realistic numbers.
+- Provide clear file paths and filenames for every code snippet (e.g., ml_service/train_model.py, backend/src/routes/predict.js, frontend/src/components/Leaderboard.jsx).
+- Ensure the starter code uses deterministic random seeds where relevant to make results reproducible.
+- Keep total development estimate aligned with ~80–100 hours; include per-week hour estimates and a final summary matching the 8-week roadmap.
+- Avoid personal pronouns; use direct imperative language and neutral nouns.
+- Produce the full output in one response; avoid requiring follow-up clarifications to begin implementation.
