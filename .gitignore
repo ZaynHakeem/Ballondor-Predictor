@@ -1,0 +1,46 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dist/
+build/
+.env
+.env.local
+.env.*.local
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+*.out
+*.err
+
+# Python / ML
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.ipynb_checkpoints
+*.pkl
+*.h5
+*.pt
+*.onnx
+*.csv
+*.tsv
+*.jsonl
+data/
+datasets/
+models/
+checkpoints/
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
+
+# Temporary
+*.tmp
+*.swp
